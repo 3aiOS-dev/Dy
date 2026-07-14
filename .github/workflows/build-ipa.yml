@@ -28,28 +28,49 @@ jobs:
           rm -rf "$THEOS"
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
 
+      - name: Download iOS SDK
+        run: |
+          export THEOS=$HOME/theos
+          mkdir -p "$THEOS/sdks"
+          cd "$THEOS/sdks"
+          # Download latest iOS SDK
+          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz -o iPhoneOS16.5.sdk.tar.xz
+          tar -xJf iPhoneOS16.5.sdk.tar.xz
+          rm iPhoneOS16.5.sdk.tar.xz
+          # Also download iPhoneOS14.5 SDK for compatibility
+          curl -L https://github.com/theos/sdks/releases/download/ios-14.5/iPhoneOS14.5.sdk.tar.xz -o iPhoneOS14.5.sdk.tar.xz
+          tar -xJf iPhoneOS14.5.sdk.tar.xz
+          rm iPhoneOS14.5.sdk.tar.xz
+          ls -la "$THEOS/sdks"
+
       - name: Create Tweak Files
         run: |
           cd ${{ github.workspace }}
           mkdir -p NoWelcomeTweak
           cd NoWelcomeTweak
 
-          # Create Makefile
+          # Create Makefile - Fixed version
           cat > Makefile << 'MAKEFILE_EOF'
-          ARCHS = arm64 arm64e
-          TARGET = iphone:clang:14.0:11.0
+          export THEOS := $(shell echo $$THEOS)
+          export SDKVERSION := 16.5
+          export TARGET := iphone:clang:16.5:12.0
+          ARCHS = arm64
 
           include $(THEOS)/makefiles/common.mk
 
           TWEAK_NAME = NoWelcomeMessage
           NoWelcomeMessage_FILES = Tweak.xm
           NoWelcomeMessage_CFLAGS = -fobjc-arc
+          NoWelcomeMessage_FRAMEWORKS = UIKit Foundation
+          NoWelcomeMessage_EXTRA_FRAMEWORKS = 
+          NoWelcomeMessage_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
           include $(THEOS_MAKE_PATH)/tweak.mk
 
           after-install::
-          	install.exec "killall -9 cinemana"
-          	install.exec "killall -9 'cinemana x'"
+          	install.exec "killall -9 SpringBoard"
+          	install.exec "killall -9 'cinemana x' 2>/dev/null || true"
+          	install.exec "killall -9 cinemana 2>/dev/null || true"
           MAKEFILE_EOF
 
           # Create control file
@@ -62,10 +83,10 @@ jobs:
           Maintainer: Your Name
           Author: Your Name
           Section: Tweaks
-          Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 11.0)
+          Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 12.0)
           CONTROL_EOF
 
-          # Create Tweak.xm
+          # Create Tweak.xm - Enhanced version
           cat > Tweak.xm << 'TWEAK_EOF'
           #import <UIKit/UIKit.h>
           #import <substrate.h>
@@ -78,14 +99,18 @@ jobs:
               @"إصلاح التحميل",
               @"كيرا",
               @"لمزيد من التطبيقات",
-              @"dev"
+              @"dev",
+              @"مشاهدة على جميع شبكات",
+              @"حل مشكلة الاشتراك",
+              @"تحميل الحلقات"
           ];
 
           // Check if text contains any welcome keyword
           static BOOL containsWelcomeKeyword(NSString *text) {
-              if (!text) return NO;
+              if (!text || text.length == 0) return NO;
+              NSString *lowercaseText = [text lowercaseString];
               for (NSString *keyword in welcomeKeywords) {
-                  if ([text rangeOfString:keyword options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                  if ([lowercaseText rangeOfString:[keyword lowercaseString] options:NSCaseInsensitiveSearch].location != NSNotFound) {
                       return YES;
                   }
               }
@@ -97,7 +122,7 @@ jobs:
 
           - (void)viewDidAppear:(BOOL)animated {
               %orig;
-              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.1];
+              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.3];
           }
 
           - (void)removeWelcomeViews {
@@ -111,15 +136,21 @@ jobs:
                   }
               }
 
-              // Remove welcome subviews
-              NSArray *subviews = [self.view.subviews copy];
+              // Remove welcome subviews recursively
+              [self removeWelcomeViewsFromView:self.view];
+          }
+
+          - (void)removeWelcomeViewsFromView:(UIView *)view {
+              if (!view) return;
+              
+              NSArray *subviews = [view.subviews copy];
               for (UIView *subview in subviews) {
                   // Check labels
                   if ([subview isKindOfClass:[UILabel class]]) {
                       UILabel *label = (UILabel *)subview;
                       if (containsWelcomeKeyword(label.text)) {
                           [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label");
+                          NSLog(@"[NoWelcomeTweak] Removed welcome label: %@", label.text);
                           continue;
                       }
                   }
@@ -161,33 +192,11 @@ jobs:
                           [window setHidden:YES];
                           [window removeFromSuperview];
                           NSLog(@"[NoWelcomeTweak] Removed welcome window");
+                          continue;
                       }
                   }
 
                   // Recursively check subviews
-                  if (subview.subviews.count > 0) {
-                      [self removeWelcomeViewsFromView:subview];
-                  }
-              }
-          }
-
-          - (void)removeWelcomeViewsFromView:(UIView *)view {
-              NSArray *subviews = [view.subviews copy];
-              for (UIView *subview in subviews) {
-                  if ([subview isKindOfClass:[UILabel class]]) {
-                      UILabel *label = (UILabel *)subview;
-                      if (containsWelcomeKeyword(label.text)) {
-                          [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label from subview");
-                      }
-                  }
-                  if ([subview isKindOfClass:[UIButton class]]) {
-                      UIButton *button = (UIButton *)subview;
-                      if (containsWelcomeKeyword(button.titleLabel.text)) {
-                          [button removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome button from subview");
-                      }
-                  }
                   if (subview.subviews.count > 0) {
                       [self removeWelcomeViewsFromView:subview];
                   }
@@ -207,20 +216,18 @@ jobs:
               }
           }
 
+          - (void)viewDidLoad {
+              %orig;
+              if (containsWelcomeKeyword(self.title) || containsWelcomeKeyword(self.message)) {
+                  [self dismissViewControllerAnimated:NO completion:nil];
+                  NSLog(@"[NoWelcomeTweak] Removed welcome alert on load");
+              }
+          }
+
           %end
 
           // Hook UIApplication to prevent welcome windows
           %hook UIApplication
-
-          - (void)keyWindow {
-              %orig;
-              UIWindow *keyWindow = self.keyWindow;
-              if (keyWindow && keyWindow.windowLevel > UIWindowLevelNormal) {
-                  [keyWindow setHidden:YES];
-                  [keyWindow removeFromSuperview];
-                  NSLog(@"[NoWelcomeTweak] Removed welcome key window");
-              }
-          }
 
           - (void)windows {
               %orig;
@@ -243,7 +250,7 @@ jobs:
               %orig;
 
               // Check if the view being added contains welcome text
-              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                   [self checkAndRemoveWelcomeViews];
               });
           }
@@ -279,55 +286,19 @@ jobs:
                       UILabel *label = (UILabel *)subview;
                       if (containsWelcomeKeyword(label.text)) {
                           [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label during add from subview");
+                          NSLog(@"[NoWelcomeTweak] Removed welcome label from subview");
                       }
                   }
                   if ([subview isKindOfClass:[UIButton class]]) {
                       UIButton *button = (UIButton *)subview;
                       if (containsWelcomeKeyword(button.titleLabel.text)) {
                           [button removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome button during add from subview");
+                          NSLog(@"[NoWelcomeTweak] Removed welcome button from subview");
                       }
                   }
                   if (subview.subviews.count > 0) {
                       [self checkAndRemoveWelcomeViewsFromView:subview];
                   }
-              }
-          }
-
-          %end
-
-          // Hook for any view controller that might show welcome message
-          %hook UIWindow
-
-          - (void)makeKeyAndVisible {
-              %orig;
-              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                  UIViewController *rootVC = self.rootViewController;
-                  if (rootVC) {
-                      // Check if root view controller has welcome messages
-                      [self checkViewController:rootVC];
-                  }
-              });
-          }
-
-          - (void)checkViewController:(UIViewController *)viewController {
-              if (!viewController) return;
-
-              // Check presented view controller
-              if (viewController.presentedViewController) {
-                  if ([viewController.presentedViewController isKindOfClass:[UIAlertController class]]) {
-                      UIAlertController *alert = (UIAlertController *)viewController.presentedViewController;
-                      if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
-                          [alert dismissViewControllerAnimated:NO completion:nil];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome alert from window");
-                      }
-                  }
-              }
-
-              // Check child view controllers
-              for (UIViewController *childVC in viewController.childViewControllers) {
-                  [self checkViewController:childVC];
               }
           }
 
@@ -339,24 +310,27 @@ jobs:
           }
           TWEAK_EOF
 
-      - name: Create Package Script
-        run: |
-          cd ${{ github.workspace }}/NoWelcomeTweak
-          cat > package.sh << 'PACKAGE_EOF'
-          #!/bin/bash
-          export THEOS=$HOME/theos
-          export PATH=$THEOS/bin:$PATH
-          make clean
-          make package
-          PACKAGE_EOF
-          chmod +x package.sh
+          # Create entitlements file
+          cat > entitlements.plist << 'ENTITLEMENTS_EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.springboard.launchapplications</key>
+              <true/>
+              <key>dynamic-codesigning</key>
+              <true/>
+          </dict>
+          </plist>
+          ENTITLEMENTS_EOF
 
       - name: Build Tweak
         run: |
           export THEOS=$HOME/theos
           export PATH=$THEOS/bin:$PATH
           cd ${{ github.workspace }}/NoWelcomeTweak
-          ./package.sh
+          make clean
+          make package
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -367,8 +341,11 @@ jobs:
 
       - name: List Built Files
         run: |
-          echo "Built deb files:"
+          echo "=== Built deb files ==="
           ls -la ${{ github.workspace }}/NoWelcomeTweak/*.deb 2>/dev/null || echo "No deb files found"
           echo ""
-          echo "Tweak files:"
+          echo "=== Tweak directory contents ==="
           ls -la ${{ github.workspace }}/NoWelcomeTweak/
+          echo ""
+          echo "=== Theos SDKs ==="
+          ls -la $HOME/theos/sdks/

@@ -88,6 +88,46 @@ jobs:
           Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 12.0)
           CONTROL_EOF
 
+          # Create Filter.plist - This is required for the tweak to work
+          cat > Filter.plist << 'FILTER_EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>Filter</key>
+              <dict>
+                  <key>Bundles</key>
+                  <array>
+                      <string>com.example.cinemana</string>
+                      <string>com.cinemana.app</string>
+                      <string>com.cinemana.x</string>
+                      <string>com.yourcompany.cinemana</string>
+                  </array>
+              </dict>
+          </dict>
+          </plist>
+          FILTER_EOF
+
+          # Also create NoWelcomeMessage.plist (alternative name)
+          cat > NoWelcomeMessage.plist << 'PLIST_EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>Filter</key>
+              <dict>
+                  <key>Bundles</key>
+                  <array>
+                      <string>com.example.cinemana</string>
+                      <string>com.cinemana.app</string>
+                      <string>com.cinemana.x</string>
+                      <string>com.yourcompany.cinemana</string>
+                  </array>
+              </dict>
+          </dict>
+          </plist>
+          PLIST_EOF
+
           # Create Tweak.xm - Fixed version with proper method declarations
           cat > Tweak.xm << 'TWEAK_EOF'
           #import <UIKit/UIKit.h>

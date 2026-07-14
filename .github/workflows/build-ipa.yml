@@ -16,6 +16,8 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           xcode-select -p
+          # Set Xcode path for theos
+          echo "XCODE_DEVELOPER=/Applications/Xcode.app/Contents/Developer" >> $GITHUB_ENV
 
       - name: Setup Dependencies
         run: |
@@ -28,41 +30,25 @@ jobs:
           rm -rf "$THEOS"
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
 
-      - name: Download iOS SDK
-        run: |
-          export THEOS=$HOME/theos
-          mkdir -p "$THEOS/sdks"
-          cd "$THEOS/sdks"
-          # Download latest iOS SDK
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz -o iPhoneOS16.5.sdk.tar.xz
-          tar -xJf iPhoneOS16.5.sdk.tar.xz
-          rm iPhoneOS16.5.sdk.tar.xz
-          # Also download iPhoneOS14.5 SDK for compatibility
-          curl -L https://github.com/theos/sdks/releases/download/ios-14.5/iPhoneOS14.5.sdk.tar.xz -o iPhoneOS14.5.sdk.tar.xz
-          tar -xJf iPhoneOS14.5.sdk.tar.xz
-          rm iPhoneOS14.5.sdk.tar.xz
-          ls -la "$THEOS/sdks"
-
       - name: Create Tweak Files
         run: |
           cd ${{ github.workspace }}
           mkdir -p NoWelcomeTweak
           cd NoWelcomeTweak
 
-          # Create Makefile - Fixed version
+          # Create Makefile - Fixed with correct SDK handling
           cat > Makefile << 'MAKEFILE_EOF'
           export THEOS := $(shell echo $$THEOS)
-          export SDKVERSION := 16.5
-          export TARGET := iphone:clang:16.5:12.0
+          export SDKVERSION := 14.0
+          export TARGET := iphone:clang:14.0:12.0
           ARCHS = arm64
 
           include $(THEOS)/makefiles/common.mk
 
           TWEAK_NAME = NoWelcomeMessage
           NoWelcomeMessage_FILES = Tweak.xm
-          NoWelcomeMessage_CFLAGS = -fobjc-arc
+          NoWelcomeMessage_CFLAGS = -fobjc-arc -Wno-error
           NoWelcomeMessage_FRAMEWORKS = UIKit Foundation
-          NoWelcomeMessage_EXTRA_FRAMEWORKS = 
           NoWelcomeMessage_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
           include $(THEOS_MAKE_PATH)/tweak.mk
@@ -90,6 +76,7 @@ jobs:
           cat > Tweak.xm << 'TWEAK_EOF'
           #import <UIKit/UIKit.h>
           #import <substrate.h>
+          #import <objc/runtime.h>
 
           // Array of welcome messages to look for
           static NSArray *welcomeKeywords = @[
@@ -102,7 +89,9 @@ jobs:
               @"dev",
               @"مشاهدة على جميع شبكات",
               @"حل مشكلة الاشتراك",
-              @"تحميل الحلقات"
+              @"تحميل الحلقات",
+              @"القيود",
+              @"الاشتراك"
           ];
 
           // Check if text contains any welcome keyword
@@ -122,7 +111,12 @@ jobs:
 
           - (void)viewDidAppear:(BOOL)animated {
               %orig;
-              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.3];
+              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.5];
+          }
+
+          - (void)viewWillAppear:(BOOL)animated {
+              %orig;
+              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.1];
           }
 
           - (void)removeWelcomeViews {
@@ -138,6 +132,17 @@ jobs:
 
               // Remove welcome subviews recursively
               [self removeWelcomeViewsFromView:self.view];
+              
+              // Also check presented view controllers
+              if (self.presentedViewController) {
+                  if ([self.presentedViewController isKindOfClass:NSClassFromString(@"UIAlertController")]) {
+                      UIAlertController *alert = (UIAlertController *)self.presentedViewController;
+                      if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
+                          [alert dismissViewControllerAnimated:NO completion:nil];
+                          NSLog(@"[NoWelcomeTweak] Removed presented welcome alert");
+                      }
+                  }
+              }
           }
 
           - (void)removeWelcomeViewsFromView:(UIView *)view {
@@ -150,7 +155,7 @@ jobs:
                       UILabel *label = (UILabel *)subview;
                       if (containsWelcomeKeyword(label.text)) {
                           [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label: %@", label.text);
+                          NSLog(@"[NoWelcomeTweak] Removed welcome label");
                           continue;
                       }
                   }
@@ -196,6 +201,21 @@ jobs:
                       }
                   }
 
+                  // Check image views (could contain welcome text as image)
+                  if ([subview isKindOfClass:[UIImageView class]]) {
+                      // Hide image views that might contain welcome graphics
+                      [subview setHidden:YES];
+                      NSLog(@"[NoWelcomeTweak] Hidden welcome image view");
+                      continue;
+                  }
+
+                  // Check for views with accessibility identifiers
+                  if (subview.accessibilityIdentifier && containsWelcomeKeyword(subview.accessibilityIdentifier)) {
+                      [subview removeFromSuperview];
+                      NSLog(@"[NoWelcomeTweak] Removed welcome view by accessibility id");
+                      continue;
+                  }
+
                   // Recursively check subviews
                   if (subview.subviews.count > 0) {
                       [self removeWelcomeViewsFromView:subview];
@@ -229,16 +249,19 @@ jobs:
           // Hook UIApplication to prevent welcome windows
           %hook UIApplication
 
-          - (void)windows {
-              %orig;
-              NSArray *windows = self.windows;
+          - (NSArray *)windows {
+              NSArray *windows = %orig;
+              NSMutableArray *filteredWindows = [NSMutableArray array];
               for (UIWindow *window in windows) {
-                  if (window.windowLevel > UIWindowLevelNormal && !window.hidden) {
+                  if (window.windowLevel <= UIWindowLevelNormal || window.hidden) {
+                      [filteredWindows addObject:window];
+                  } else {
                       [window setHidden:YES];
                       [window removeFromSuperview];
                       NSLog(@"[NoWelcomeTweak] Removed welcome window from list");
                   }
               }
+              return filteredWindows;
           }
 
           %end
@@ -250,7 +273,7 @@ jobs:
               %orig;
 
               // Check if the view being added contains welcome text
-              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                   [self checkAndRemoveWelcomeViews];
               });
           }
@@ -304,6 +327,22 @@ jobs:
 
           %end
 
+          // Hook for view controller presentation
+          %hook UIViewController
+
+          - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
+              if ([viewControllerToPresent isKindOfClass:NSClassFromString(@"UIAlertController")]) {
+                  UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
+                  if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
+                      NSLog(@"[NoWelcomeTweak] Blocked welcome alert from being presented");
+                      return;
+                  }
+              }
+              %orig;
+          }
+
+          %end
+
           // Constructor
           %ctor {
               NSLog(@"[NoWelcomeTweak] Loaded successfully - Removing welcome messages from cinemana x");
@@ -324,11 +363,28 @@ jobs:
           </plist>
           ENTITLEMENTS_EOF
 
-      - name: Build Tweak
+          # Create _Prefix.pch file for better compatibility
+          cat > _Prefix.pch << 'PCH_EOF'
+          #ifdef __OBJC__
+          #import <UIKit/UIKit.h>
+          #import <Foundation/Foundation.h>
+          #endif
+          PCH_EOF
+
+      - name: Build Tweak - Using System SDK
         run: |
           export THEOS=$HOME/theos
           export PATH=$THEOS/bin:$PATH
+          export SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk
+          export IPHONEOS_DEPLOYMENT_TARGET=12.0
+          
           cd ${{ github.workspace }}/NoWelcomeTweak
+          
+          # Create symlink for SDK if needed
+          mkdir -p $THEOS/sdks
+          ln -sf $SDKROOT $THEOS/sdks/iPhoneOS.sdk 2>/dev/null || true
+          
+          # Build the tweak
           make clean
           make package
 
@@ -348,4 +404,7 @@ jobs:
           ls -la ${{ github.workspace }}/NoWelcomeTweak/
           echo ""
           echo "=== Theos SDKs ==="
-          ls -la $HOME/theos/sdks/
+          ls -la $HOME/theos/sdks/ 2>/dev/null || echo "SDK directory not found"
+          echo ""
+          echo "=== Xcode SDKs ==="
+          ls -la /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/

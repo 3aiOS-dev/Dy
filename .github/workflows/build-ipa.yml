@@ -88,7 +88,7 @@ jobs:
           Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 12.0)
           CONTROL_EOF
 
-          # Create Tweak.xm - Enhanced version
+          # Create Tweak.xm - Fixed version with proper method declarations
           cat > Tweak.xm << 'TWEAK_EOF'
           #import <UIKit/UIKit.h>
           #import <substrate.h>
@@ -124,22 +124,17 @@ jobs:
               return NO;
           }
 
-          // Hook UIViewController to remove welcome messages
-          %hook UIViewController
+          // Category to add methods to UIViewController
+          @interface UIViewController (WelcomeRemoval)
+          - (void)removeWelcomeViews;
+          - (void)removeWelcomeViewsFromView:(UIView *)view;
+          @end
 
-          - (void)viewDidAppear:(BOOL)animated {
-              %orig;
-              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.5];
-          }
-
-          - (void)viewWillAppear:(BOOL)animated {
-              %orig;
-              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.1];
-          }
+          @implementation UIViewController (WelcomeRemoval)
 
           - (void)removeWelcomeViews {
               // Check if this is an alert controller
-              if ([self isKindOfClass:NSClassFromString(@"UIAlertController")]) {
+              if ([self isKindOfClass:[UIAlertController class]]) {
                   UIAlertController *alert = (UIAlertController *)self;
                   if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
                       [self dismissViewControllerAnimated:NO completion:nil];
@@ -153,7 +148,7 @@ jobs:
               
               // Also check presented view controllers
               if (self.presentedViewController) {
-                  if ([self.presentedViewController isKindOfClass:NSClassFromString(@"UIAlertController")]) {
+                  if ([self.presentedViewController isKindOfClass:[UIAlertController class]]) {
                       UIAlertController *alert = (UIAlertController *)self.presentedViewController;
                       if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
                           [alert dismissViewControllerAnimated:NO completion:nil];
@@ -205,7 +200,7 @@ jobs:
                           [textView removeFromSuperview];
                           NSLog(@"[NoWelcomeTweak] Removed welcome text view");
                           continue;
-                  }
+                      }
                   }
 
                   // Remove windows with high window level
@@ -231,6 +226,89 @@ jobs:
                       [self removeWelcomeViewsFromView:subview];
                   }
               }
+          }
+
+          @end
+
+          // Category to add methods to UIView
+          @interface UIView (WelcomeRemoval)
+          - (void)checkAndRemoveWelcomeViews;
+          - (void)checkAndRemoveWelcomeViewsFromView:(UIView *)view;
+          @end
+
+          @implementation UIView (WelcomeRemoval)
+
+          - (void)checkAndRemoveWelcomeViews {
+              NSArray *subviews = [self.subviews copy];
+              for (UIView *subview in subviews) {
+                  // Check all subviews for welcome text
+                  if ([subview isKindOfClass:[UILabel class]]) {
+                      UILabel *label = (UILabel *)subview;
+                      if (containsWelcomeKeyword(label.text)) {
+                          [label removeFromSuperview];
+                          NSLog(@"[NoWelcomeTweak] Removed welcome label during add");
+                      }
+                  }
+                  if ([subview isKindOfClass:[UIButton class]]) {
+                      UIButton *button = (UIButton *)subview;
+                      if (containsWelcomeKeyword(button.titleLabel.text)) {
+                          [button removeFromSuperview];
+                          NSLog(@"[NoWelcomeTweak] Removed welcome button during add");
+                      }
+                  }
+                  if (subview.subviews.count > 0) {
+                      [self checkAndRemoveWelcomeViewsFromView:subview];
+                  }
+              }
+          }
+
+          - (void)checkAndRemoveWelcomeViewsFromView:(UIView *)view {
+              NSArray *subviews = [view.subviews copy];
+              for (UIView *subview in subviews) {
+                  if ([subview isKindOfClass:[UILabel class]]) {
+                      UILabel *label = (UILabel *)subview;
+                      if (containsWelcomeKeyword(label.text)) {
+                          [label removeFromSuperview];
+                          NSLog(@"[NoWelcomeTweak] Removed welcome label from subview");
+                      }
+                  }
+                  if ([subview isKindOfClass:[UIButton class]]) {
+                      UIButton *button = (UIButton *)subview;
+                      if (containsWelcomeKeyword(button.titleLabel.text)) {
+                          [button removeFromSuperview];
+                          NSLog(@"[NoWelcomeTweak] Removed welcome button from subview");
+                      }
+                  }
+                  if (subview.subviews.count > 0) {
+                      [self checkAndRemoveWelcomeViewsFromView:subview];
+                  }
+              }
+          }
+
+          @end
+
+          // Hook UIViewController to remove welcome messages
+          %hook UIViewController
+
+          - (void)viewDidAppear:(BOOL)animated {
+              %orig;
+              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.5];
+          }
+
+          - (void)viewWillAppear:(BOOL)animated {
+              %orig;
+              [self performSelector:@selector(removeWelcomeViews) withObject:nil afterDelay:0.1];
+          }
+
+          - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
+              if ([viewControllerToPresent isKindOfClass:[UIAlertController class]]) {
+                  UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
+                  if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
+                      NSLog(@"[NoWelcomeTweak] Blocked welcome alert from being presented");
+                      return;
+                  }
+              }
+              %orig;
           }
 
           %end
@@ -286,69 +364,6 @@ jobs:
               dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                   [self checkAndRemoveWelcomeViews];
               });
-          }
-
-          - (void)checkAndRemoveWelcomeViews {
-              NSArray *subviews = [self.subviews copy];
-              for (UIView *subview in subviews) {
-                  // Check all subviews for welcome text
-                  if ([subview isKindOfClass:[UILabel class]]) {
-                      UILabel *label = (UILabel *)subview;
-                      if (containsWelcomeKeyword(label.text)) {
-                          [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label during add");
-                      }
-                  }
-                  if ([subview isKindOfClass:[UIButton class]]) {
-                      UIButton *button = (UIButton *)subview;
-                      if (containsWelcomeKeyword(button.titleLabel.text)) {
-                          [button removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome button during add");
-                      }
-                  }
-                  if (subview.subviews.count > 0) {
-                      [self checkAndRemoveWelcomeViewsFromView:subview];
-                  }
-              }
-          }
-
-          - (void)checkAndRemoveWelcomeViewsFromView:(UIView *)view {
-              NSArray *subviews = [view.subviews copy];
-              for (UIView *subview in subviews) {
-                  if ([subview isKindOfClass:[UILabel class]]) {
-                      UILabel *label = (UILabel *)subview;
-                      if (containsWelcomeKeyword(label.text)) {
-                          [label removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome label from subview");
-                      }
-                  }
-                  if ([subview isKindOfClass:[UIButton class]]) {
-                      UIButton *button = (UIButton *)subview;
-                      if (containsWelcomeKeyword(button.titleLabel.text)) {
-                          [button removeFromSuperview];
-                          NSLog(@"[NoWelcomeTweak] Removed welcome button from subview");
-                      }
-                  }
-                  if (subview.subviews.count > 0) {
-                      [self checkAndRemoveWelcomeViewsFromView:subview];
-                  }
-              }
-          }
-
-          %end
-
-          // Hook for view controller presentation
-          %hook UIViewController
-
-          - (void)presentViewController:(UIViewController *)viewControllerToPresent animated:(BOOL)flag completion:(void (^)(void))completion {
-              if ([viewControllerToPresent isKindOfClass:NSClassFromString(@"UIAlertController")]) {
-                  UIAlertController *alert = (UIAlertController *)viewControllerToPresent;
-                  if (containsWelcomeKeyword(alert.title) || containsWelcomeKeyword(alert.message)) {
-                      NSLog(@"[NoWelcomeTweak] Blocked welcome alert from being presented");
-                      return;
-                  }
-              }
-              %orig;
           }
 
           %end

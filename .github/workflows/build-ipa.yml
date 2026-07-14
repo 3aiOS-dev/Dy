@@ -108,26 +108,6 @@ jobs:
           </plist>
           FILTER_EOF
 
-          # Also create NoWelcomeMessage.plist (alternative name)
-          cat > NoWelcomeMessage.plist << 'PLIST_EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>Filter</key>
-              <dict>
-                  <key>Bundles</key>
-                  <array>
-                      <string>com.example.cinemana</string>
-                      <string>com.cinemana.app</string>
-                      <string>com.cinemana.x</string>
-                      <string>com.yourcompany.cinemana</string>
-                  </array>
-              </dict>
-          </dict>
-          </plist>
-          PLIST_EOF
-
           # Create Tweak.xm - Fixed version with proper method declarations
           cat > Tweak.xm << 'TWEAK_EOF'
           #import <UIKit/UIKit.h>
@@ -455,17 +435,65 @@ jobs:
           make clean
           make package
 
-      - name: Upload Artifact
+      - name: Copy Dylib and Files to Artifacts Directory
+        run: |
+          cd ${{ github.workspace }}/NoWelcomeTweak
+          
+          # Create artifacts directory
+          mkdir -p artifacts
+          
+          # Copy the deb file
+          cp *.deb artifacts/ 2>/dev/null || echo "No deb files found"
+          
+          # Find and copy the dylib from .theos directory
+          echo "Looking for dylib files..."
+          find . -name "*.dylib" -type f
+          echo ""
+          
+          # Copy dylib to artifacts
+          find . -name "*.dylib" -type f -exec cp {} artifacts/ \;
+          
+          # Copy plist files
+          cp Filter.plist artifacts/ 2>/dev/null || echo "No Filter.plist"
+          cp *.plist artifacts/ 2>/dev/null || echo "No plist files"
+          
+          # Copy the tweak files
+          cp Tweak.xm artifacts/ 2>/dev/null || echo "No Tweak.xm"
+          cp Makefile artifacts/ 2>/dev/null || echo "No Makefile"
+          cp control artifacts/ 2>/dev/null || echo "No control"
+          
+          # Create a zip file with all artifacts
+          cd artifacts
+          zip -r ../NoWelcomeTweak-Complete.zip *
+          cd ..
+          
+          echo "=== Artifacts Directory Contents ==="
+          ls -la artifacts/
+          echo ""
+          echo "=== Complete Zip Contents ==="
+          unzip -l NoWelcomeTweak-Complete.zip
+
+      - name: Upload Complete Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NoWelcomeMessage-Tweak
-          path: ${{ github.workspace }}/NoWelcomeTweak/*.deb
+          name: NoWelcomeTweak-Complete
+          path: |
+            ${{ github.workspace }}/NoWelcomeTweak/artifacts/
+            ${{ github.workspace }}/NoWelcomeTweak/*.deb
+            ${{ github.workspace }}/NoWelcomeTweak/NoWelcomeTweak-Complete.zip
           retention-days: 30
 
-      - name: List Built Files
+      - name: Upload Dylib Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoWelcomeTweak-Dylib
+          path: ${{ github.workspace }}/NoWelcomeTweak/**/*.dylib
+          retention-days: 30
+
+      - name: List All Files
         run: |
-          echo "=== Built deb files ==="
-          ls -la ${{ github.workspace }}/NoWelcomeTweak/*.deb 2>/dev/null || echo "No deb files found"
+          echo "=== All Files in NoWelcomeTweak Directory ==="
+          find ${{ github.workspace }}/NoWelcomeTweak -type f | sort
           echo ""
-          echo "=== Tweak directory contents ==="
-          ls -la ${{ github.workspace }}/NoWelcomeTweak/
+          echo "=== Looking for Dylib files in entire workspace ==="
+          find ${{ github.workspace }} -name "*.dylib" -type f

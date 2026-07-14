@@ -16,7 +16,6 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           xcode-select -p
-          # Set Xcode path for theos
           echo "XCODE_DEVELOPER=/Applications/Xcode.app/Contents/Developer" >> $GITHUB_ENV
 
       - name: Setup Dependencies
@@ -30,17 +29,34 @@ jobs:
           rm -rf "$THEOS"
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
 
+      - name: Setup iOS SDK
+        run: |
+          export THEOS=$HOME/theos
+          mkdir -p "$THEOS/sdks"
+          cd "$THEOS/sdks"
+          
+          # Get the actual SDK version from Xcode
+          SDK_VERSION=$(ls /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ | grep iPhoneOS | grep -Eo '[0-9]+\.[0-9]+' | head -1)
+          echo "Found SDK Version: $SDK_VERSION"
+          echo "SDK_VERSION=$SDK_VERSION" >> $GITHUB_ENV
+          
+          # Create symlink to Xcode SDK
+          ln -sf /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk "$THEOS/sdks/iPhoneOS${SDK_VERSION}.sdk"
+          ln -sf /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk "$THEOS/sdks/iPhoneOS.sdk"
+          
+          ls -la "$THEOS/sdks"
+
       - name: Create Tweak Files
         run: |
           cd ${{ github.workspace }}
           mkdir -p NoWelcomeTweak
           cd NoWelcomeTweak
 
-          # Create Makefile - Fixed with correct SDK handling
+          # Create Makefile - Fixed with dynamic SDK
           cat > Makefile << 'MAKEFILE_EOF'
           export THEOS := $(shell echo $$THEOS)
-          export SDKVERSION := 14.0
-          export TARGET := iphone:clang:14.0:12.0
+          export SDKVERSION := $(shell ls /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/ | grep iPhoneOS | grep -Eo '[0-9]+\.[0-9]+' | head -1)
+          export TARGET := iphone:clang:$(SDKVERSION):12.0
           ARCHS = arm64
 
           include $(THEOS)/makefiles/common.mk
@@ -91,7 +107,9 @@ jobs:
               @"حل مشكلة الاشتراك",
               @"تحميل الحلقات",
               @"القيود",
-              @"الاشتراك"
+              @"الاشتراك",
+              @"متابعة",
+              @"عدم الإظهار مرة أخرى"
           ];
 
           // Check if text contains any welcome keyword
@@ -187,7 +205,7 @@ jobs:
                           [textView removeFromSuperview];
                           NSLog(@"[NoWelcomeTweak] Removed welcome text view");
                           continue;
-                      }
+                  }
                   }
 
                   // Remove windows with high window level
@@ -199,14 +217,6 @@ jobs:
                           NSLog(@"[NoWelcomeTweak] Removed welcome window");
                           continue;
                       }
-                  }
-
-                  // Check image views (could contain welcome text as image)
-                  if ([subview isKindOfClass:[UIImageView class]]) {
-                      // Hide image views that might contain welcome graphics
-                      [subview setHidden:YES];
-                      NSLog(@"[NoWelcomeTweak] Hidden welcome image view");
-                      continue;
                   }
 
                   // Check for views with accessibility identifiers
@@ -371,18 +381,20 @@ jobs:
           #endif
           PCH_EOF
 
-      - name: Build Tweak - Using System SDK
+      - name: Build Tweak
         run: |
           export THEOS=$HOME/theos
           export PATH=$THEOS/bin:$PATH
-          export SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk
-          export IPHONEOS_DEPLOYMENT_TARGET=12.0
           
           cd ${{ github.workspace }}/NoWelcomeTweak
           
-          # Create symlink for SDK if needed
-          mkdir -p $THEOS/sdks
-          ln -sf $SDKROOT $THEOS/sdks/iPhoneOS.sdk 2>/dev/null || true
+          # Show SDK versions for debugging
+          echo "=== Xcode SDKs ==="
+          ls -la /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/
+          echo ""
+          echo "=== Theos SDKs ==="
+          ls -la $THEOS/sdks/
+          echo ""
           
           # Build the tweak
           make clean
@@ -402,9 +414,3 @@ jobs:
           echo ""
           echo "=== Tweak directory contents ==="
           ls -la ${{ github.workspace }}/NoWelcomeTweak/
-          echo ""
-          echo "=== Theos SDKs ==="
-          ls -la $HOME/theos/sdks/ 2>/dev/null || echo "SDK directory not found"
-          echo ""
-          echo "=== Xcode SDKs ==="
-          ls -la /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/

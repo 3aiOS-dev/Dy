@@ -27,7 +27,7 @@ jobs:
 
       - name: Setup Xcode
         run: |
-          sudo xcode-select --switch /Applications/Xcode_15.4.app/Contents/Developer || \
+          sudo xcode-select --switch /Applications/Xcode_15.4.app/Contents/Developer 2>/dev/null || \
           sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           xcode-select -p
           swift --version
@@ -112,14 +112,12 @@ jobs:
           def make(size):
               img = Image.new("RGB", (size, size), (17, 17, 22))
               d = ImageDraw.Draw(img)
-              # خلفية متدرجة بسيطة (داكن → بنفسجي)
               for i in range(size):
                   t = i / max(1, size - 1)
                   r = int(20 + (90 - 20) * t)
                   g = int(20 + (40 - 20) * t)
                   b = int(40 + (160 - 40) * t)
                   d.line([(0, i), (size, i)], fill=(r, g, b))
-              # حرف J في المنتصف
               pad = size // 4
               d.rounded_rectangle((pad, pad, size - pad, size - pad),
                                   radius=size // 6, fill=(255, 255, 255, 255))
@@ -151,9 +149,9 @@ jobs:
           PYEOF
           ls -lh Resources
 
-      - name: Generate source - main.swift
+      - name: Generate source - JoodApp.swift
         run: |
-          cat > main.swift << 'SWEOF'
+          cat > JoodApp.swift << 'SWEOF'
           import SwiftUI
           import WebKit
           import UIKit
@@ -166,7 +164,6 @@ jobs:
           @main
           struct JoodApp: App {
               init() {
-                  // تشغيل الوضع الداكن حتى تبدو الواجهة متكاملة مع الموقع
                   if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
                       scene.windows.forEach { $0.overrideUserInterfaceStyle = .dark }
                   }
@@ -196,35 +193,22 @@ jobs:
           }
 
           // ============================================================
-          // Splash بسيط يظهر أثناء التحميل الأول (اختياري - يختفي بعد
-          // اكتمال تحميل الصفحة). يمنع ظهور شاشة بيضاء.
-          // ============================================================
-          final class WebState: ObservableObject {
-              @Published var isLoading: Bool = true
-              @Published var didFail: Bool = false
-          }
-
-          // ============================================================
           // WKWebView — يعرض الموقع بكامل الشاشة
           // ============================================================
           struct WebViewRepresentable: UIViewRepresentable {
-              @StateObject private var state = WebState()
 
               private static let initialURL = URL(string: "https://jood-ipa.neocities.org")!
 
               func makeUIView(context: Context) -> UIView {
-                  // حاوية تغطي كامل الشاشة
                   let container = UIView(frame: .zero)
                   container.backgroundColor = .black
 
-                  // إعدادات WebView
                   let config = WKWebViewConfiguration()
                   config.allowsInlineMediaPlayback = true
                   config.mediaTypesRequiringUserActionForPlayback = []
                   config.defaultWebpagePreferences.allowsContentJavaScript = true
                   config.websiteDataStore = .default()
 
-                  // إعدادات الموقع عبر JS: منع التمرير الأفقي وخلفية داكنة
                   let userScript = WKUserScript(
                       source: """
                       document.documentElement.style.background = '#000';
@@ -264,7 +248,6 @@ jobs:
 
                   context.coordinator.webView = webView
 
-                  // تحميل الرابط
                   var req = URLRequest(url: Self.initialURL)
                   req.cachePolicy = .reloadRevalidatingCacheData
                   req.timeoutInterval = 30
@@ -285,7 +268,6 @@ jobs:
               final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
                   weak var webView: WKWebView?
 
-                  // السماح بكل التنقلات داخل الموقع، وفتح الروابط الخارجية في النظام
                   func webView(_ webView: WKWebView,
                                decidePolicyFor navigationAction: WKNavigationAction,
                                decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -294,7 +276,6 @@ jobs:
                           decisionHandler(.allow); return
                       }
 
-                      // فتح الروابط التي تُشغّل تطبيقات أخرى عبر النظام
                       let scheme = url.scheme?.lowercased() ?? ""
                       let systemSchemes = [
                           "mailto", "tel", "sms",
@@ -310,22 +291,18 @@ jobs:
                           return
                       }
 
-                      // iframe / about:blank → سماح
                       if scheme.isEmpty || scheme == "about" {
                           decisionHandler(.allow); return
                       }
 
-                      // HTTP/HTTPS → سماح دائمًا داخل التطبيق
                       if scheme == "http" || scheme == "https" {
                           decisionHandler(.allow); return
                       }
 
-                      // أي مخطط آخر → حاول فتحه عبر النظام
                       UIApplication.shared.open(url, options: [:], completionHandler: nil)
                       decisionHandler(.cancel)
                   }
 
-                  // تنزيل الملفات: نسمح لنظام iOS بالتعامل مع ملفات ipa/plist عبر Safari
                   func webView(_ webView: WKWebView,
                                decidePolicyFor navigationResponse: WKNavigationResponse,
                                decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
@@ -335,7 +312,6 @@ jobs:
                           let url = http.url
                           let ext = url?.pathExtension.lowercased() ?? ""
 
-                          // ملفات التثبيت والتنزيل → افتحها في Safari حتى يتولى iOS التثبيت
                           if ext == "ipa" || ext == "plist" || ext == "mobileprovision" || ext == "apk" ||
                              mime.contains("application/octet-stream") ||
                              mime.contains("application/x-plist") ||
@@ -352,7 +328,6 @@ jobs:
                       decisionHandler(.allow)
                   }
 
-                  // عند فشل التحميل → إعادة محاولة تلقائية بعد ثانيتين
                   func webView(_ webView: WKWebView,
                                didFailProvisionalNavigation navigation: WKNavigation!,
                                withError error: Error) {
@@ -374,7 +349,6 @@ jobs:
                   }
 
                   // ============ WKUIDelegate ============
-                  // فتح نوافذ JS (window.open / target="_blank") في نفس الـ WebView
                   func webView(_ webView: WKWebView,
                                createWebViewWith configuration: WKWebViewConfiguration,
                                for navigationAction: WKNavigationAction,
@@ -386,7 +360,6 @@ jobs:
                       return nil
                   }
 
-                  // تنبيهات JS (alert / confirm / prompt)
                   func webView(_ webView: WKWebView,
                                runJavaScriptAlertPanelWithMessage message: String,
                                initiatedByFrame frame: WKFrameInfo,
@@ -431,7 +404,6 @@ jobs:
                       topViewController()?.present(alert, animated: true)
                   }
 
-                  // ============ Helpers ============
                   private func topViewController() -> UIViewController? {
                       guard let scene = UIApplication.shared.connectedScenes
                           .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
@@ -446,18 +418,19 @@ jobs:
               }
           }
           SWEOF
-          wc -l main.swift
+          wc -l JoodApp.swift
 
       - name: Compile Swift sources
         run: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           echo "SDK: $SDK"
           xcrun swiftc \
-            main.swift \
+            JoodApp.swift \
             -sdk "$SDK" \
             -target arm64-apple-ios14.0 \
             -O \
             -module-name JoodApp \
+            -parse-as-library \
             -framework SwiftUI \
             -framework UIKit \
             -framework Foundation \
@@ -476,10 +449,8 @@ jobs:
           cp Resources/Info.plist "$APP_DIR/Info.plist"
           chmod +x "$APP_DIR/JoodApp"
 
-          # نسخ الأيقونات إلى Assets داخل الحزمة (SwiftUI يستخدم CFBundleIcon أحيانًا)
           cp Resources/AppIcon*.png "$APP_DIR/" 2>/dev/null || true
 
-          # إزالة ملفات نظام ماك
           xattr -cr build-output || true
           find build-output -name ".DS_Store" -delete
           find build-output -name "._*" -delete

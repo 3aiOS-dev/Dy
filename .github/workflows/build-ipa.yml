@@ -1,4 +1,4 @@
-name: Jood IPA - Web App (Full Screen)
+name: Jood IPA - Web App (Full Screen - Light Mode)
 
 "on":
   push:
@@ -81,10 +81,11 @@ jobs:
               <dict>
                   <key>UIColorName</key><string></string>
               </dict>
-              <key>UIStatusBarHidden</key>              <true/>
+              <key>UIStatusBarHidden</key>              <false/>
+              <key>UIStatusBarStyle</key>               <string>UIStatusBarStyleDarkContent</string>
               <key>UIViewControllerBasedStatusBarAppearance</key> <false/>
               <key>UIRequiresFullScreen</key>           <true/>
-              <key>UIUserInterfaceStyle</key>           <string>Dark</string>
+              <key>UIUserInterfaceStyle</key>           <string>Light</string>
               <key>NSAppTransportSecurity</key>
               <dict>
                   <key>NSAllowsArbitraryLoads</key><true/>
@@ -110,17 +111,20 @@ jobs:
           os.makedirs("Resources", exist_ok=True)
 
           def make(size):
-              img = Image.new("RGB", (size, size), (17, 17, 22))
+              img = Image.new("RGB", (size, size), (245, 246, 250))
               d = ImageDraw.Draw(img)
+              # خلفية فاتحة متدرجة
               for i in range(size):
                   t = i / max(1, size - 1)
-                  r = int(20 + (90 - 20) * t)
-                  g = int(20 + (40 - 20) * t)
-                  b = int(40 + (160 - 40) * t)
+                  r = int(245 - (60 * t))
+                  g = int(246 - (60 * t))
+                  b = int(252 - (60 * t))
                   d.line([(0, i), (size, i)], fill=(r, g, b))
-              pad = size // 4
+              # مربع أبيض في المنتصف
+              pad = size // 5
               d.rounded_rectangle((pad, pad, size - pad, size - pad),
-                                  radius=size // 6, fill=(255, 255, 255, 255))
+                                  radius=size // 7, fill=(255, 255, 255))
+              # حرف J بلون أزرق
               try:
                   from PIL import ImageFont
                   f = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size // 3)
@@ -133,7 +137,7 @@ jobs:
               else:
                   w, h = size // 6, size // 6
               d.text(((size - w) / 2, (size - h) / 2 - size // 30),
-                     txt, fill=(20, 20, 40), font=f)
+                     txt, fill=(45, 110, 220), font=f)
               return img
 
           sizes = {
@@ -158,14 +162,15 @@ jobs:
 
           // ============================================================
           // Jood IPA — تطبيق أصلي يعرض الموقع بكامل الشاشة بدون أي واجهة
-          // متصفح. لا شريط عنوان، لا أزرار تنقل، لا شيء سوى المحتوى.
+          // متصفح. الوضع الفاتح فقط (لا وضع داكن نهائيًا).
           // ============================================================
 
           @main
           struct JoodApp: App {
               init() {
+                  // فرض الوضع الفاتح على كل النوافذ
                   if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                      scene.windows.forEach { $0.overrideUserInterfaceStyle = .dark }
+                      scene.windows.forEach { $0.overrideUserInterfaceStyle = .light }
                   }
                   UINavigationBar.appearance().isHidden = true
               }
@@ -173,8 +178,7 @@ jobs:
               var body: some Scene {
                   WindowGroup {
                       RootView()
-                          .preferredColorScheme(.dark)
-                          .statusBarHidden(true)
+                          .preferredColorScheme(.light)
                           .ignoresSafeArea(.all, edges: .all)
                   }
               }
@@ -187,8 +191,8 @@ jobs:
               var body: some View {
                   WebViewRepresentable()
                       .ignoresSafeArea(.all, edges: .all)
-                      .background(Color.black)
-                      .preferredColorScheme(.dark)
+                      .background(Color.white)
+                      .preferredColorScheme(.light)
               }
           }
 
@@ -201,7 +205,8 @@ jobs:
 
               func makeUIView(context: Context) -> UIView {
                   let container = UIView(frame: .zero)
-                  container.backgroundColor = .black
+                  container.backgroundColor = .white
+                  container.overrideUserInterfaceStyle = .light
 
                   let config = WKWebViewConfiguration()
                   config.allowsInlineMediaPlayback = true
@@ -211,8 +216,8 @@ jobs:
 
                   let userScript = WKUserScript(
                       source: """
-                      document.documentElement.style.background = '#000';
-                      document.body && (document.body.style.background = '#000');
+                      document.documentElement.style.background = '#ffffff';
+                      document.body && (document.body.style.background = '#ffffff');
                       document.documentElement.style.webkitTouchCallout = 'none';
                       """,
                       injectionTime: .atDocumentEnd,
@@ -222,9 +227,10 @@ jobs:
 
                   let webView = WKWebView(frame: .zero, configuration: config)
                   webView.translatesAutoresizingMaskIntoConstraints = false
+                  webView.overrideUserInterfaceStyle = .light
                   webView.isOpaque = true
-                  webView.backgroundColor = .black
-                  webView.scrollView.backgroundColor = .black
+                  webView.backgroundColor = .white
+                  webView.scrollView.backgroundColor = .white
                   webView.scrollView.bounces = false
                   webView.scrollView.contentInsetAdjustmentBehavior = .never
                   webView.scrollView.showsVerticalScrollIndicator = false
@@ -366,6 +372,7 @@ jobs:
                                completionHandler: @escaping () -> Void) {
                       let alert = UIAlertController(title: nil, message: message,
                                                     preferredStyle: .alert)
+                      alert.overrideUserInterfaceStyle = .light
                       alert.addAction(UIAlertAction(title: "حسنًا", style: .default) { _ in
                           completionHandler()
                       })
@@ -378,6 +385,7 @@ jobs:
                                completionHandler: @escaping (Bool) -> Void) {
                       let alert = UIAlertController(title: nil, message: message,
                                                     preferredStyle: .alert)
+                      alert.overrideUserInterfaceStyle = .light
                       alert.addAction(UIAlertAction(title: "إلغاء", style: .cancel) { _ in
                           completionHandler(false)
                       })
@@ -394,6 +402,7 @@ jobs:
                                completionHandler: @escaping (String?) -> Void) {
                       let alert = UIAlertController(title: nil, message: prompt,
                                                     preferredStyle: .alert)
+                      alert.overrideUserInterfaceStyle = .light
                       alert.addTextField { $0.text = defaultText }
                       alert.addAction(UIAlertAction(title: "إلغاء", style: .cancel) { _ in
                           completionHandler(nil)

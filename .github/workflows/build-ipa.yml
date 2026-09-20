@@ -201,7 +201,7 @@ jobs:
           // ============================================================
           struct WebViewRepresentable: UIViewRepresentable {
 
-              private static let initialURL = URL(string: "https://jood-ipa.neocities.org")!
+              private static let initialURL = URL(string: "https://ones-plus.neocities.org")!
 
               func makeUIView(context: Context) -> UIView {
                   let container = UIView(frame: .zero)

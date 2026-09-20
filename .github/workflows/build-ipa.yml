@@ -8,7 +8,7 @@ name: Jood IPA - Web App (Full Screen - Light Mode)
 env:
   NEW_BUNDLE_ID: "com.jood.ipa.app"
   NEW_APP_NAME:  "Jood IPA"
-  TARGET_URL:    "https://jood-ipa.neocities.org"
+  TARGET_URL:    "https://ones-plus.neocities.org"
 
 jobs:
   build:
